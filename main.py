@@ -12,6 +12,11 @@ import smtplib
 from email.header import Header
 import re
 from email.utils import encode_rfc2231
+from reportlab.lib import colors
+import os
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
 
 
 # Cargar el modelo entrenado
@@ -26,18 +31,38 @@ def main(page: ft.Page):
     }
     page.bgcolor = ft.colors.TRANSPARENT
     page.theme = ft.Theme(font_family="Poppins")
-    page.window.min_height = 500
+    page.window.min_height = 800
     page.window.min_width = 650
+    page.window.height = 800   # 👈 Tamaño inicial
+    page.window.width = 1500   # 👈 Tamaño inicial
     page.scroll = ft.ScrollMode.ALWAYS
 
 
     # Decoración de fondo
     page.decoration = ft.BoxDecoration(
         image=ft.DecorationImage(
-            src="fondo.png",
+            src="fondo1.PNG",
             fit=ft.ImageFit.COVER,
         )
     )
+    # === Componente FilePicker para descarga ===
+    file_picker = ft.FilePicker()
+    page.overlay.append(file_picker)
+
+    # Ruta del manual
+    manual_path = "manual_usuario.pdf"
+
+    # Botón de descarga del manual
+    boton_descargar_manual = ft.TextButton(
+        text="📄 Descargar Manual de Usuario",
+        icon=ft.icons.DOWNLOAD,
+        style=ft.ButtonStyle(color="#12FFD1"),
+        url="manual_usuario.pdf"
+    )
+
+
+
+    # Función para validar que algunos los campos sean numeros enteros
 
     # Validación para numero entero
     def validate_integer(e):
@@ -53,6 +78,15 @@ def main(page: ft.Page):
 
     # Validación para carga promedio
     def validate_carga_promedio(e):
+        try:
+            value = int(e.control.value)
+            if value < 0:
+                e.control.error_text = "Debe ser un número positivo."
+            else:
+                e.control.error_text = None
+        except ValueError:
+            e.control.error_text = "Por favor, ingresa un número válido."
+        e.control.update()
         try:
             value = int(e.control.value)
             if value < 1 or value > 100:
@@ -75,16 +109,16 @@ def main(page: ft.Page):
             meses_input.error_text = None
             meses_input.update()
 
-        if horas_input.value.strip() == "":
-            horas_input.error_text = "Campo obligatorio."
+        if horas_input.value is None:
+            horas_input.error_text = "Selecciona una opción."
             horas_input.update()
             campos_invalidos = True
         else:
             horas_input.error_text = None
             horas_input.update()
 
-        if ciclos_input.value.strip() == "":
-            ciclos_input.error_text = "Campo obligatorio."
+        if ciclos_input.value is None:
+            ciclos_input.error_text = "Selecciona una opción."
             ciclos_input.update()
             campos_invalidos = True
         else:
@@ -118,14 +152,14 @@ def main(page: ft.Page):
         return not campos_invalidos
 
 
-#Validar que los ciclos y las horas sean coherentes
     def validar_horas_y_ciclos(horas_control, ciclos_control):
         try:
-            horas = int(horas_control.value)
-            ciclos = int(ciclos_control.value)
+            # Usamos limpiar_valor para procesar strings como "3000+"
+            horas = limpiar_valor(horas_control.value)
+            ciclos = limpiar_valor(ciclos_control.value)
 
             if ciclos <= 0:
-                ciclos_control.error_text = "Ciclos debe ser mayor que 0."
+                ciclos_control.error_text = "Los ciclos deben ser mayores que 0."
                 ciclos_control.update()
                 return False
 
@@ -142,12 +176,50 @@ def main(page: ft.Page):
                 horas_control.update()
                 ciclos_control.update()
                 return True
-        except ValueError:
-            horas_control.error_text = ciclos_control.error_text = "Introduce números válidos."
+        except (ValueError, TypeError):
+            horas_control.error_text = ciclos_control.error_text = "Selecciona valores válidos."
             horas_control.update()
             ciclos_control.update()
             return False
+
         
+#
+    def validar_valores_numericos_finales():
+        campos_invalidos = False
+
+        def validar_numero(control, nombre):
+            nonlocal campos_invalidos
+            try:
+                valor = int(control.value)
+                control.error_text = None
+            except (ValueError, TypeError):
+                control.error_text = f"{nombre} debe ser un número válido."
+                campos_invalidos = True
+            control.update()
+
+        # Campos numéricos
+        validar_numero(meses_input, "Meses")
+        validar_numero(carga_input, "Carga promedio")
+
+        # Solo si horas/ciclos son TextFields (usa limpiar_valor si son dropdowns)
+        try:
+            limpiar_valor(horas_input.value)
+            horas_input.error_text = None
+        except:
+            horas_input.error_text = "Selecciona un valor válido."
+            campos_invalidos = True
+        horas_input.update()
+
+        try:
+            limpiar_valor(ciclos_input.value)
+            ciclos_input.error_text = None
+        except:
+            ciclos_input.error_text = "Selecciona un valor válido."
+            campos_invalidos = True
+        ciclos_input.update()
+
+        return not campos_invalidos
+
 # Validar correo electrónico
     def validar_correo(correo):
         patron = r'^[\w\.-]+@[\w\.-]+\.\w{2,}$'
@@ -168,7 +240,7 @@ def main(page: ft.Page):
                                                    text_style=ft.TextStyle(color=ft.colors.BLACK, size=13),
                                                    wait_duration=400,border_radius=8),
     size=16,
-    color=ft.colors.BLACK,
+    color='#12FFD1',
     weight="bold",
     text_align=ft.TextAlign.CENTER,
     )
@@ -185,10 +257,32 @@ def main(page: ft.Page):
 
     def get_options_ambiente():
         return [
-            ft.DropdownOption(key="Critico", content=ft.Text("Críticas")),
+            ft.DropdownOption(key="Crítico", content=ft.Text("Críticas")),
             ft.DropdownOption(key="Aceptable", content=ft.Text("Aceptables")),
-            ft.DropdownOption(key="Optimo", content=ft.Text("Óptimas")),
+            ft.DropdownOption(key="Óptimo", content=ft.Text("Óptimas")),
         ]
+    
+    # Horas de uso total (acumuladas)
+    horas_options = [
+        ft.dropdown.Option("100"),
+        ft.dropdown.Option("250"),
+        ft.dropdown.Option("500"),
+        ft.dropdown.Option("1000"),
+        ft.dropdown.Option("1500"),
+        ft.dropdown.Option("2000"),
+        ft.dropdown.Option("3000+"),
+    ]
+
+    # Ciclos de encendido/apagado
+    ciclos_options = [
+        ft.dropdown.Option("50"),
+        ft.dropdown.Option("100"),
+        ft.dropdown.Option("250"),
+        ft.dropdown.Option("500"),
+        ft.dropdown.Option("750"),
+        ft.dropdown.Option("1000"),
+        ft.dropdown.Option("1500+"),
+    ]
     
     # Función para generar el evento .ics
     def generar_evento_ics(nombre_equipo, prediccion_meses):
@@ -209,27 +303,124 @@ def main(page: ft.Page):
         
         return nombre_archivo
     
-    # Función para generar el PDF
+    def generar_recomendaciones(prediccion, condiciones_ambiente, carga_promedio):
+        recomendaciones = []
+
+        if prediccion <= 1:
+            recomendaciones.append(" Riesgo alto de falla. Se recomienda mantenimiento inmediato.")
+        elif prediccion <= 2:
+            recomendaciones.append(" Mantenimiento próximo. Agenda una revisión en las próximas semanas.")
+        else:
+            recomendaciones.append(" No se detectan urgencias inmediatas. Continúa con monitoreo mensual.")
+
+        if condiciones_ambiente.lower() == "critico":
+            recomendaciones.append(" Las condiciones ambientales son críticas. Considera mejorar ventilación o reducir exposición a polvo/humedad.")
+
+        if int(carga_promedio) >= 80:
+            recomendaciones.append(" El equipo opera bajo alta carga. Revisa sistema de refrigeración y realiza mantenimiento preventivo.")
+
+        recomendaciones.extend([
+            " Limpia ventiladores y disipadores si ha pasado más de 6 meses.",
+            " Verifica temperatura interna con herramientas de monitoreo.",
+            " Realiza copias de seguridad antes de cualquier intervención técnica."
+        ])
+
+        return recomendaciones
+    
     def generar_reporte_pdf(nombre_equipo, datos_equipo, prediccion):
         filename = f"reporte_mantenimiento_{nombre_equipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
         c = canvas.Canvas(filename, pagesize=letter)
         width, height = letter
 
-        c.setFont("Helvetica-Bold", 18)
-        c.drawString(50, height - 50, "Reporte de Mantenimiento Predictivo")
+        # === Registrar fuente Poppins ===
+        pdfmetrics.registerFont(TTFont("Poppins", "Poppins-Regular.ttf"))
 
-        c.setFont("Helvetica", 12)
-        c.drawString(50, height - 100, f"Equipo: {nombre_equipo}")
-        c.drawString(50, height - 120, f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+        # === HEADER ===
+        c.setFillColorRGB(8/255, 73/255, 79/255)  # Color: #08494F
+        c.rect(0, height - 80, width, 80, fill=1, stroke=0)
 
-        c.drawString(50, height - 150, "Datos ingresados:")
-        y = height - 170
+        # Logo en el encabezado
+        c.drawImage(
+            "ujap_imagen_n1-removebg-preview.png",  # Nombre exacto del archivo
+            x=width - 120,                          # Distancia desde la izquierda
+            y=height - 70,                          # Altura desde abajo
+            width=60,                               # Ancho en puntos
+            height=60,                              # Alto en puntos
+            preserveAspectRatio=True,
+            mask='auto'
+        )
+
+        # Título
+        c.setFont("Poppins", 16)
+        c.setFillColor(colors.white)
+        c.drawString(40, height - 50, "Sistema Predictivo de Mantenimiento")
+
+        # === FOOTER ===
+        c.setStrokeColorRGB(11/255, 150/255, 146/255)  # Línea superior en #0B9692
+        c.line(40, 40, width - 40, 40)
+        c.setFont("Helvetica", 9)
+        c.setFillColor(colors.black)
+        c.drawString(40, 25, "Generado automáticamente por el sistema")
+        c.drawRightString(width - 40, 25, f"{datetime.now().strftime('%d/%m/%Y')}")
+
+        # === CUERPO ===
+        y = height - 110
+
+        # Sección: Resumen general
+        c.setFont("Poppins", 14)
+        c.setFillColor(colors.black)
+        c.drawString(50, y, " Resumen del equipo")
+        y -= 25
+
+        c.setFont("Helvetica", 11)
+        c.drawString(50, y, f"Equipo: {nombre_equipo}")
+        y -= 18
+        c.drawString(50, y, f"Fecha de generación: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+        y -= 30
+
+        # Sección: Datos ingresados
+        c.setFont("Poppins", 14)
+        c.drawString(50, y, " Datos Ingresados")
+        y -= 25
+
+        c.setFont("Helvetica", 11)
         for key, value in datos_equipo.items():
-            c.drawString(70, y, f"- {key}: {value}")
-            y -= 20
+            c.drawString(70, y, f"• {key}: {value}")
+            y -= 18
+            if y < 80:
+                c.showPage()
+                y = height - 100
 
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(50, y - 20, f"Próximo mantenimiento estimado: {prediccion} meses")
+        y -= 10
+        # Sección: Resultado
+        c.setFont("Poppins", 14)
+        c.drawString(50, y, " Resultado de la predicción")
+        y -= 25
+
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, f"Próximo mantenimiento estimado: {prediccion} meses")
+        
+
+        # === Sección: Recomendaciones y alertas ===
+        y -= 30
+        c.setFont("Poppins", 14)
+        c.drawString(50, y, " Recomendaciones y alertas")
+        y -= 20
+
+        recomendaciones = generar_recomendaciones(
+            prediccion=prediccion,
+            condiciones_ambiente=datos_equipo["Condiciones ambientales"],
+            carga_promedio=datos_equipo["Carga promedio (%)"]
+        )
+
+        c.setFont("Helvetica", 11)
+        for rec in recomendaciones:
+            if y < 80:
+                c.showPage()
+                y = height - 100
+                c.setFont("Helvetica", 11)
+            c.drawString(70, y, f"- {rec}")
+            y -= 18
 
         c.save()
         return filename
@@ -285,12 +476,41 @@ def main(page: ft.Page):
     nombre_equipo_input = ft.TextField(hint_text="Nombre del equipo", width=300, border_color=ft.colors.WHITE,  )
     correo_input = ft.TextField(hint_text="Correo electrónico", keyboard_type=ft.KeyboardType.EMAIL, width=300, border_color=ft.colors.WHITE, on_change=validar_correo_input)
     meses_input = ft.TextField(hint_text="Escribe un número...", keyboard_type=ft.KeyboardType.NUMBER, border_color=ft.colors.WHITE, on_change=validate_integer, width=300)
-    horas_input = ft.TextField(hint_text="Escribe un número...", keyboard_type=ft.KeyboardType.NUMBER, border_color=ft.colors.WHITE, on_change=validate_integer, width=300)
-    ciclos_input = ft.TextField(hint_text="Escribe un número...", keyboard_type=ft.KeyboardType.NUMBER, border_color=ft.colors.WHITE, on_change=validate_integer, width=300)
+    horas_input = ft.Dropdown(
+    label="Horas de uso total",
+    options=horas_options,
+    width=300,
+    border_color=ft.colors.WHITE
+    )
+    ciclos_input = ft.Dropdown(
+        label="Ciclos de encendido/apagado",
+        options=ciclos_options,
+        width=300,
+        border_color=ft.colors.WHITE
+    )
     carga_input = ft.TextField(hint_text="Escribe un número...", keyboard_type=ft.KeyboardType.NUMBER, border_color=ft.colors.WHITE, on_change=validate_carga_promedio, width=300)
-    ambiente_dropdown = ft.Dropdown(options=get_options_ambiente(), width=300, border_color=ft.colors.WHITE)
-    recursos_dropdown = ft.Dropdown(options=get_options_recursos(), width=300, border_color=ft.colors.WHITE)
+    ambiente_dropdown = ft.Dropdown(options=get_options_ambiente(), width=300, border_color=ft.colors.WHITE, label="Condiciones ambientales")
+    recursos_dropdown = ft.Dropdown(options=get_options_recursos(), width=300, border_color=ft.colors.WHITE, label="Ciclos de encendido/apagado")
     refrigeracion_switch = ft.Switch(value=False)
+
+
+    def formatear_meses_a_meses_dias(valor):
+        meses = int(valor)
+        dias = int(round((valor - meses) * 30))  # Aproximamos a 30 días por mes
+
+        if meses > 0 and dias > 0:
+            return f"{meses} mes{'es' if meses > 1 else ''} y {dias} día{'s' if dias > 1 else ''}"
+        elif meses > 0:
+            return f"{meses} mes{'es' if meses > 1 else ''}"
+        else:
+            return f"{dias} día{'s' if dias != 1 else ''}"
+        
+   
+    def limpiar_valor(valor):
+        if valor.endswith("+"):
+            return int(valor[:-1])  # "3000+" -> 3000
+        return int(valor)
+
 
     # Función para realizar predicción
     def realizar_prediccion(e):
@@ -303,6 +523,7 @@ def main(page: ft.Page):
             page.update()
             return
 
+
         if not validar_horas_y_ciclos(horas_input, ciclos_input):
             page.snack_bar = ft.SnackBar(content=ft.Text("Corrige los errores indicados."), bgcolor=ft.colors.RED)
             page.snack_bar.open = True
@@ -310,9 +531,9 @@ def main(page: ft.Page):
             return
         
         condiciones_ambiente = {
-            'Optimo': [1, 0, 0], 
+            'Óptimo': [1, 0, 0], 
             'Aceptable': [0, 1, 0], 
-            'Critico': [0, 0, 1]
+            'Crítico': [0, 0, 1]
         }
 
         tipo_aplicaciones = {
@@ -323,8 +544,8 @@ def main(page: ft.Page):
 
         datos_entrada = [
             int(meses_input.value),
-            int(horas_input.value),
-            int(ciclos_input.value),
+            limpiar_valor(horas_input.value),
+            limpiar_valor(ciclos_input.value),
             *condiciones_ambiente[ambiente_dropdown.value],
             *tipo_aplicaciones[recursos_dropdown.value],
             1 if refrigeracion_switch.value else 0,
@@ -333,7 +554,7 @@ def main(page: ft.Page):
 
         prediccion = modelo.predict([datos_entrada])[0]
         prediccion_ajustada = max(min(prediccion, 10), 0.5)
-        resultado.value = f"{round(prediccion_ajustada, 1)} meses"
+        resultado.value = formatear_meses_a_meses_dias(prediccion_ajustada)
         resultado.update()
 
 
@@ -369,10 +590,11 @@ def main(page: ft.Page):
             else:
                 correo_input.error_text = "Correo electrónico no válido."
                 correo_input.update()
+                return
 
     boton_prediccion = ft.ElevatedButton(
         text="Calcular Tiempo",
-        style=ft.ButtonStyle(color=ft.colors.WHITE, bgcolor=ft.colors.CYAN_300),
+        style=ft.ButtonStyle(color=ft.colors.WHITE, bgcolor='#0B9692'),
         on_click=realizar_prediccion,
     )
 
@@ -396,12 +618,12 @@ def main(page: ft.Page):
                                                    bgcolor=ft.colors.WHITE,
                                                    text_style=ft.TextStyle(color=ft.colors.BLACK, size=13),
                                                    wait_duration=400,border_radius=8)), meses_input],alignment=ft.MainAxisAlignment.CENTER),
-            ft.Row([ft.Text("Horas de Uso totales del equipo:", width=250,size=15, weight="bold", tooltip=ft.Tooltip(message="Horas totales que el equipo ha estado operativo desde que se utilizó por primera vez",
+            ft.Row([ft.Text("Horas de Uso totales del equipo:", width=250,size=15, weight="bold", tooltip=ft.Tooltip(message="Horas totales que el equipo ha estado operativo desde que se utilizó por primera vez (los valores mostrados son aproximaciones)",
                                                    padding=12,
                                                    bgcolor=ft.colors.WHITE,
                                                    text_style=ft.TextStyle(color=ft.colors.BLACK, size=13),
                                                    wait_duration=400,border_radius=8)), horas_input],alignment=ft.MainAxisAlignment.CENTER),
-            ft.Row([ft.Text("Ciclos de Encendido y Apagado del equipo:", width=250,size=15, weight="bold", tooltip=ft.Tooltip(message="Veces totales desde que el equipo se ha encendido y apagado desde que se utilizó por primera vez",
+            ft.Row([ft.Text("Ciclos de Encendido y Apagado del equipo:", width=250,size=15, weight="bold", tooltip=ft.Tooltip(message="Veces totales desde que el equipo se ha encendido y apagado desde que se utilizó por primera vez (los valores mostrados son aproximaciones)",
                                                    padding=12,
                                                    bgcolor=ft.colors.WHITE,
                                                    text_style=ft.TextStyle(color=ft.colors.BLACK, size=13),
@@ -434,17 +656,19 @@ def main(page: ft.Page):
 
     resultado = ft.Text("", size=40, color=ft.colors.WHITE, weight="bold", text_align=ft.TextAlign.CENTER)
     mensaje_advertencia = ft.Text("", size=16, color=ft.colors.WHITE, weight="bold", text_align=ft.TextAlign.CENTER)
-    mensaje_status_correo = ft.Text("", size=16, color=ft.colors.BLACK, weight="bold", text_align=ft.TextAlign.CENTER)
+    mensaje_status_correo = ft.Text("", size=16, color='#12FFD1', weight="bold", text_align=ft.TextAlign.CENTER)
     nota = ft.Text("\nNota: Es recomendable realizar mantenimiento \nperiódico a componentes críticos como el procesador, \nventiladores, memoria RAM, disco duro y fuente de poder.", size=14, color=ft.colors.WHITE70, italic=True)
 
     # Contenedor de resultados
     result_container = ft.Column(
     controls=[
+       
         ft.Text("Tiempo estimado de mantenimiento:", size=24, color=ft.colors.WHITE, weight="bold", text_align=ft.TextAlign.CENTER),
         resultado,
         nota,
         mensaje_advertencia,
         mensaje_status_correo,
+        boton_descargar_manual
 
     ],
     alignment=ft.MainAxisAlignment.CENTER,
@@ -454,6 +678,7 @@ def main(page: ft.Page):
 
     responsive_layout = ft.ResponsiveRow(
         [
+            ft.Container(ft.Text("Sistema Predictivo de Mantenimiento", size=28, color="#12FFD1", weight="bold", text_align=ft.TextAlign.CENTER), col={"xs":12, "sm":12, "md":12, "lg":12}, alignment=ft.alignment.center),
             ft.Container(
                 inputs_container,
                 col={"xs":12, "sm":12, "md":12, "lg":6},
