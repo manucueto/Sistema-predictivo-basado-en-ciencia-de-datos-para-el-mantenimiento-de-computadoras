@@ -1,0 +1,6 @@
+flet
+joblib
+scikit-learn
+reportlab
+python-dotenv
+ics
