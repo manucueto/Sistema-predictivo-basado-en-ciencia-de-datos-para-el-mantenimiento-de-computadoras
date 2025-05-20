@@ -13,14 +13,27 @@ from email.header import Header
 import re
 from email.utils import encode_rfc2231
 from reportlab.lib import colors
-import os
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+import sys
+import os
+from dotenv import load_dotenv
 
+
+load_dotenv()
+
+# Cargar variables de entorno desde el archivo .env
+correo = os.getenv("CORREO_REMITENTE")
+contrasena = os.getenv("CLAVE_CORREO")
+
+def obtener_ruta_recurso(nombre_archivo):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, nombre_archivo)
+    return os.path.join(os.path.abspath("."), nombre_archivo)
 
 
 # Cargar el modelo entrenado
-modelo = joblib.load('modelo_mantenimiento.pkl')
+modelo = joblib.load(obtener_ruta_recurso('modelo_mantenimiento.pkl'))
 
 def main(page: ft.Page):
     # Configuración general de la ventana
@@ -33,15 +46,15 @@ def main(page: ft.Page):
     page.theme = ft.Theme(font_family="Poppins")
     page.window.min_height = 800
     page.window.min_width = 650
-    page.window.height = 800   # 👈 Tamaño inicial
-    page.window.width = 1500   # 👈 Tamaño inicial
+    page.window.height = 800   
+    page.window.width = 1500  
     page.scroll = ft.ScrollMode.ALWAYS
 
 
     # Decoración de fondo
     page.decoration = ft.BoxDecoration(
         image=ft.DecorationImage(
-            src="fondo1.PNG",
+            src=obtener_ruta_recurso("fondo1.PNG"),
             fit=ft.ImageFit.COVER,
         )
     )
@@ -50,14 +63,13 @@ def main(page: ft.Page):
     page.overlay.append(file_picker)
 
     # Ruta del manual
-    manual_path = "manual_usuario.pdf"
+    manual_path = obtener_ruta_recurso("manual_usuario.pdf")
 
-    # Botón de descarga del manual
     boton_descargar_manual = ft.TextButton(
         text="📄 Descargar Manual de Usuario",
         icon=ft.icons.DOWNLOAD,
         style=ft.ButtonStyle(color="#12FFD1"),
-        url="manual_usuario.pdf"
+        on_click=lambda _: page.launch_url("file://" + manual_path)
     )
 
 
@@ -333,7 +345,7 @@ def main(page: ft.Page):
         width, height = letter
 
         # === Registrar fuente Poppins ===
-        pdfmetrics.registerFont(TTFont("Poppins", "Poppins-Regular.ttf"))
+        pdfmetrics.registerFont(TTFont("Poppins", obtener_ruta_recurso("Poppins-Regular.ttf")))
 
         # === HEADER ===
         c.setFillColorRGB(8/255, 73/255, 79/255)  # Color: #08494F
@@ -341,7 +353,7 @@ def main(page: ft.Page):
 
         # Logo en el encabezado
         c.drawImage(
-            "ujap_imagen_n1-removebg-preview.png",  # Nombre exacto del archivo
+            obtener_ruta_recurso("ujap_imagen_n1-removebg-preview.png"),  # Nombre exacto del archivo
             x=width - 120,                          # Distancia desde la izquierda
             y=height - 70,                          # Altura desde abajo
             width=60,                               # Ancho en puntos
@@ -462,7 +474,7 @@ def main(page: ft.Page):
         # Enviar correo
         try:
             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-                smtp.login("manuelcueto2004@gmail.com", "eimc wxrx jdpo prmt") 
+                smtp.login(correo, contrasena)
                 smtp.send_message(msg)
                 mensaje_status_correo.value = "Correo enviado exitosamente."
                 mensaje_status_correo.update()
